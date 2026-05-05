@@ -347,6 +347,48 @@ class LangfuseTracer:
         return llm_module
 
 
+class OpikTracer:
+    """Same shape as ``LangfuseTracer`` but uses Opik's LiteLLM integration.
+
+    Opik requires ``OPIK_WORKSPACE`` to be set non-interactively, otherwise
+    ``opik.configure()`` hangs on stdin prompting for it. The factory
+    dispatch guards against that and degrades to ``DummyTracer`` if missing.
+    """
+
+    def __init__(self, project: str):
+        self.project = project
+
+    def start_experiment(
+        self,
+        experiment_name: Optional[str] = None,
+        additional_metadata: Optional[dict] = None,
+    ):
+        return None
+
+    def start_trace(
+        self, name: str, span_type: Optional[SpanType] = None
+    ) -> Union["DummySpan", Any]:
+        return DummySpan()
+
+    def get_trace_url(self) -> Optional[str]:
+        ws = os.environ.get("OPIK_WORKSPACE", "")
+        proj = os.environ.get("OPIK_PROJECT_NAME", self.project)
+        if not ws:
+            return None
+        return f"https://www.comet.com/opik/{ws}/projects/{proj}/traces"
+
+    def wrap_llm(self, llm_module):
+        from opik.integrations.litellm import OpikLogger
+        import litellm
+
+        existing = list(litellm.callbacks or [])
+        if not any(isinstance(cb, OpikLogger) for cb in existing):
+            existing.append(OpikLogger(project_name=self.project))
+            litellm.callbacks = existing
+
+        return llm_module
+
+
 class TracingFactory:
     """Factory for creating tracer instances."""
 
