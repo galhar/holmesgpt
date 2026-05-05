@@ -299,6 +299,54 @@ class BraintrustTracer:
         return WrappedLiteLLM(llm_module)
 
 
+class LangfuseTracer:
+    """Forwards every ``litellm.completion()`` call to Langfuse via the
+    SDK's first-party LiteLLM callback. No wrapping of the litellm module
+    is needed — registering ``"langfuse"`` in ``litellm.success_callback``
+    is enough for LiteLLM to emit traces with generations + tool calls.
+
+    See ``notes/observability-langfuse-opik.md`` for the underlying recipe.
+    """
+
+    def __init__(self, project: str):
+        self.project = project
+
+    def start_experiment(
+        self,
+        experiment_name: Optional[str] = None,
+        additional_metadata: Optional[dict] = None,
+    ):
+        # Langfuse organises by trace, not experiment-by-name; nothing to do.
+        return None
+
+    def start_trace(
+        self, name: str, span_type: Optional[SpanType] = None
+    ) -> Union["DummySpan", Any]:
+        # The LiteLLM callback creates one trace per completion automatically.
+        return DummySpan()
+
+    def get_trace_url(self) -> Optional[str]:
+        host = os.environ.get(
+            "LANGFUSE_HOST", "https://us.cloud.langfuse.com"
+        ).rstrip("/")
+        return host
+
+    def wrap_llm(self, llm_module):
+        import litellm
+
+        cur_success = list(litellm.success_callback or [])
+        if "langfuse" not in cur_success:
+            cur_success.append("langfuse")
+            litellm.success_callback = cur_success
+
+        cur_failure = list(litellm.failure_callback or [])
+        if "langfuse" not in cur_failure:
+            cur_failure.append("langfuse")
+            litellm.failure_callback = cur_failure
+
+        return llm_module
+
+
 class TracingFactory:
     """Factory for creating tracer instances."""
 
