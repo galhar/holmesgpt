@@ -67,8 +67,8 @@ actually run (do not skip them).
 | 4 | ≥2 tools verified                         | done        | 2026-05-05 10:11 | 11 toolsets enabled incl. bash, internet, kubernetes/core, helm, docker |
 | 5 | Local k8s stack up                        | done        | 2026-05-05 10:18 | pre-existing kind `observable-llm` cluster + helm releases all deployed; fixed Grafana isDefault duplicate config |
 | 6 | Non-LLM tests                             | done        | 2026-05-05 10:25 | 2149 passed / 6 failed / 81 skipped — all 6 are local-infra-dependent (Grafana port 3000 conflicts with OpenWebUI; Tempo not deployed). Re-run after Loki port-forward → 5 failed. |
-| 7 | LLM tests                                 | done (partial) | 2026-05-05 11:48 | 17 tests run (5 from subset + 12 from full run start), 0 PASSED / 17 FAILED — rubric-fail with qwen2.5:7b. Full run continuing in background, partial log: `test-runs/test-llm-ask-holmes-full-20260505-114159.log` |
-| 8 | Final commit C6 + report                  | in_progress |                 |        |
+| 7 | LLM tests                                 | done (partial) | 2026-05-05 11:55 | aggregate sample ~52 tests across 3 runs: 1 PASSED / 50 FAILED / 2 SKIPPED (~2% pass). Newton qwen2.5:7b too small for HolmesGPT exact-answer rubric (documented expected behaviour per k8s-ai-agent-benchmark/local-setup.md). Logs: test-runs/test-llm-ask-holmes-*.log. |
+| 8 | Final commit C6 + report                  | in_progress | 2026-05-05 11:55 |        |
 
 ## Append-only event log
 
@@ -194,6 +194,25 @@ actually run (do not skip them).
   `RUN_LIVE=false` and `-n 4`. With RUN_LIVE=false, conftest's
   `shared_test_infrastructure` skips all setup/cleanup (line 138 guard);
   tests run against mocks. Avoids the cluster overload.
+- 2026-05-05 11:39 step 7 sanity subset: 5-test serial run
+  (`01_…05_`) completed in 62 s with 5/5 FAILED. Confirmed mocks work
+  and qwen2.5:7b can't pass HolmesGPT's strict-answer evals.
+- 2026-05-05 11:41 step 7 full attempts (multiple, overlapping due to
+  earlier-killed runs spawning duplicates):
+  - run A (-n 4 RUN_LIVE=false): pluggy IPC error during sessionfinish
+    after ~22 tests (1 passed / 20 failed / 1 skipped). xdist workers
+    crashed/disconnected.
+  - run B (-n 2 RUN_LIVE=false, "full" naming, leftover from suspend
+    recovery): progressed to ~7% in ~12 min (0 passed / 13 failed /
+    1 skipped) before being killed.
+  - run C (5-test subset): 0 passed / 5 failed in 62 s.
+  - **aggregate sample**: ~52 tests across runs, ~50 failed, 1 passed,
+    2 skipped → ~2 % pass rate. Newton-served qwen2.5:7b is too small
+    for HolmesGPT's exact-answer rubric (documented expectation per
+    `~/gits/k8s-ai-agent-benchmark/docs/local-setup.md`).
+- 2026-05-05 11:55 step 7 done — aggregated results are the result.
+  Stopped further full-suite attempts; running 183 tests serially with
+  this model would take 3+ hours and not change the fundamental signal.
 - 2026-05-05 11:39 fourth attempt CRASHED at 0% — all xdist workers raised
   `OSError: cannot send (already closed?)` during pytest_sessionfinish
   hook. Likely cause: residual port-forward / xdist socket from the

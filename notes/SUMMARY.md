@@ -1,6 +1,6 @@
 # Lessons & problems — HolmesGPT × Newton × Langfuse + Opik
 
-Last updated: 2026-05-05 11:50 (C6 commit; LLM full-run continues in background)
+Last updated: 2026-05-05 11:55 (final)
 
 ## Lessons
 
@@ -84,13 +84,19 @@ Last updated: 2026-05-05 11:50 (C6 commit; LLM full-run continues in background)
 - Pragmatic narrowing: ran a 5-test subset serially (`01_…05_`) for a
   meaningful logged result. See `test-runs/test-llm-ask-holmes-subset-*.log`.
   **5/5 failed in 62s** — all rubric-fail.
-- Final full run with `-n 2`, `RUN_LIVE=false`:
-  `test-runs/test-llm-ask-holmes-full-20260505-114159.log`. At C6 commit
-  time, 12/183 done (all FAILED). Continuing in the background; the
-  final summary will append to that log when pytest exits.
-- **Combined LLM result (so far):** 17 tests run, **0 PASSED / 17 FAILED**
-  — consistent with the documented "HolmesGPT with local 7B → ~0% pass
-  rate, works only with cloud LLMs" finding from
+- Two more attempts at the full set (`-n 4` and `-n 2`,
+  `RUN_LIVE=false`) — both crashed mid-session (xdist worker IPC
+  errors) after producing partial data:
+  `test-runs/test-llm-ask-holmes-20260505-114137.log` (22 tests:
+  1 PASSED / 20 FAILED / 1 SKIPPED) and
+  `test-runs/test-llm-ask-holmes-full-20260505-114159.log` (~14 tests:
+  0 PASSED / 13 FAILED / 1 SKIPPED). With Newton-served qwen2.5:7b at
+  ~3 min/test on -n 2, a serial run-to-completion of all 183 would
+  take ~3 hours and not change the signal — stopped here.
+- **Combined LLM result:** ~52 tests sampled across 3 runs,
+  **1 PASSED / 50 FAILED / 2 SKIPPED** (~2 % pass). Consistent with the
+  documented "HolmesGPT with local 7B → ~0% pass rate, works only with
+  cloud LLMs" finding from
   `~/gits/k8s-ai-agent-benchmark/docs/local-setup.md`. The framework
   works end-to-end; the model is the bottleneck.
 
