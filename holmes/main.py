@@ -232,7 +232,15 @@ def ask(
     trace: Optional[str] = typer.Option(
         None,
         "--trace",
-        help="Enable tracing to the specified provider ('braintrust' or 'otel'). OTel auto-enables if OTEL_EXPORTER_OTLP_ENDPOINT is set.",
+        help=(
+            "Enable tracing to the specified provider(s). Single value: "
+            "'braintrust', 'otel', 'langfuse', or 'opik'. Comma-separated "
+            "for multiple (e.g. 'langfuse,opik'). OTel auto-enables if "
+            "OTEL_EXPORTER_OTLP_ENDPOINT is set. Each provider also "
+            "requires its respective env vars (LANGFUSE_PUBLIC_KEY/SECRET_KEY, "
+            "OPIK_API_KEY+OPIK_WORKSPACE, BRAINTRUST_API_KEY) — missing "
+            "credentials degrade silently to no-op for that provider."
+        ),
     ),
     system_prompt_additions: Optional[str] = typer.Option(
         None,

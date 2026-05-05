@@ -389,6 +389,64 @@ class OpikTracer:
         return llm_module
 
 
+class CompositeTracer:
+    """Fan out every tracer method to a list of underlying tracers. Used
+    when ``--trace`` is given a comma-separated value
+    (e.g. ``--trace langfuse,opik``).
+    """
+
+    def __init__(self, tracers):
+        self._tracers = list(tracers)
+
+    def start_experiment(
+        self,
+        experiment_name: Optional[str] = None,
+        additional_metadata: Optional[dict] = None,
+    ):
+        for t in self._tracers:
+            try:
+                t.start_experiment(
+                    experiment_name=experiment_name,
+                    additional_metadata=additional_metadata,
+                )
+            except Exception as e:
+                logging.warning(
+                    f"{type(t).__name__}.start_experiment failed: {e}"
+                )
+        return None
+
+    def start_trace(self, name: str, span_type: Optional[SpanType] = None):
+        # Return the first non-Dummy span; the LiteLLM callbacks attached
+        # by the other tracers still record their own traces in parallel.
+        for t in self._tracers:
+            try:
+                s = t.start_trace(name, span_type=span_type)
+                if not isinstance(s, DummySpan):
+                    return s
+            except Exception as e:
+                logging.warning(f"{type(t).__name__}.start_trace failed: {e}")
+        return DummySpan()
+
+    def get_trace_url(self) -> Optional[str]:
+        urls = []
+        for t in self._tracers:
+            try:
+                u = t.get_trace_url()
+                if u:
+                    urls.append(u)
+            except Exception:
+                pass
+        return " | ".join(urls) if urls else None
+
+    def wrap_llm(self, llm_module):
+        for t in self._tracers:
+            try:
+                llm_module = t.wrap_llm(llm_module)
+            except Exception as e:
+                logging.warning(f"{type(t).__name__}.wrap_llm failed: {e}")
+        return llm_module
+
+
 class TracingFactory:
     """Factory for creating tracer instances."""
 
@@ -436,6 +494,63 @@ class TracingFactory:
                         "OTEL_EXPORTER_OTLP_ENDPOINT set but otel packages not installed, using DummyTracer"
                     )
             return DummyTracer()
+
+        # Comma-separated trace types → CompositeTracer fans them out.
+        if "," in trace_type:
+            sub_tracers = []
+            for t in trace_type.split(","):
+                t = t.strip()
+                if not t:
+                    continue
+                inner = TracingFactory.create_tracer(t, project=project)
+                # Skip DummyTracer instances so a missing API key for one
+                # provider doesn't pollute the composite with no-ops.
+                if not isinstance(inner, DummyTracer):
+                    sub_tracers.append(inner)
+            if not sub_tracers:
+                return DummyTracer()
+            if len(sub_tracers) == 1:
+                return sub_tracers[0]
+            return CompositeTracer(sub_tracers)
+
+        if trace_type.lower() == "langfuse":
+            try:
+                import langfuse  # noqa: F401
+            except ImportError:
+                logging.warning(
+                    "Langfuse tracing requested but langfuse package not installed"
+                )
+                return DummyTracer()
+            if not (
+                os.environ.get("LANGFUSE_PUBLIC_KEY")
+                and os.environ.get("LANGFUSE_SECRET_KEY")
+            ):
+                logging.warning(
+                    "Langfuse tracing requested but LANGFUSE_PUBLIC_KEY/LANGFUSE_SECRET_KEY not set"
+                )
+                return DummyTracer()
+            return LangfuseTracer(project=project)
+
+        if trace_type.lower() == "opik":
+            try:
+                import opik  # noqa: F401
+            except ImportError:
+                logging.warning(
+                    "Opik tracing requested but opik package not installed"
+                )
+                return DummyTracer()
+            if not os.environ.get("OPIK_API_KEY"):
+                logging.warning(
+                    "Opik tracing requested but OPIK_API_KEY not set"
+                )
+                return DummyTracer()
+            if not os.environ.get("OPIK_WORKSPACE"):
+                logging.warning(
+                    "Opik tracing requested but OPIK_WORKSPACE not set "
+                    "(opik.configure() would hang on stdin) — using DummyTracer"
+                )
+                return DummyTracer()
+            return OpikTracer(project=project)
 
         if trace_type.lower() == "braintrust":
             if not BRAINTRUST_AVAILABLE:
