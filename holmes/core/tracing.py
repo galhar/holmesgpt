@@ -378,14 +378,21 @@ class OpikTracer:
         return f"https://www.comet.com/opik/{ws}/projects/{proj}/traces"
 
     def wrap_llm(self, llm_module):
-        from opik.integrations.litellm import OpikLogger
-        import litellm
+        # Opik's current LiteLLM integration is decorator-based (the older
+        # OpikLogger callback class was removed in opik ~1.10). Wrap
+        # litellm.completion so every call is recorded as an Opik trace.
+        # Idempotent — guarded by _opik_tracked attribute.
+        from opik.integrations.litellm import track_completion
 
-        existing = list(litellm.callbacks or [])
-        if not any(isinstance(cb, OpikLogger) for cb in existing):
-            existing.append(OpikLogger(project_name=self.project))
-            litellm.callbacks = existing
+        if getattr(llm_module.completion, "_opik_tracked", False):
+            return llm_module
 
+        wrapped = track_completion(project_name=self.project)(llm_module.completion)
+        try:
+            wrapped._opik_tracked = True  # type: ignore[attr-defined]
+        except AttributeError:
+            pass
+        llm_module.completion = wrapped
         return llm_module
 
 
