@@ -12,6 +12,14 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Type, Union
 import boto3
 import litellm
 import sentry_sdk
+
+# Side-effect import: registers Langfuse + Opik LiteLLM callbacks at module
+# load time when the relevant env vars are set, so every litellm.completion()
+# is traced regardless of whether the caller goes through
+# `holmes ask --trace ...` or constructs a Tracer instance. See
+# notes/observability-langfuse-opik.md.
+import holmes.core.litellm_callbacks  # noqa: F401, E402
+
 from botocore.exceptions import BotoCoreError
 from litellm.litellm_core_utils.streaming_handler import CustomStreamWrapper
 from litellm.litellm_core_utils.token_counter import get_image_dimensions
