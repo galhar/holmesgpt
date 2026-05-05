@@ -174,3 +174,7 @@ config_toolsets.yaml
 .claude/skills/dev-skills/
 .claude-trace/
 eval_results.json
+
+# Local working artifacts (notes scaffold for HolmesGPT × Newton × tracing work)
+notes/.env.local
+test-runs/
