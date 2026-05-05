@@ -35,6 +35,11 @@ opensearch-py = "^2.8.0"
 backoff = "^2.2.1"
 # Pin to stable release (check https://github.com/BerriAI/litellm/releases for updates)
 litellm = "1.81.0"
+# LLMOps tracing providers wired through holmes/core/tracing.py via LiteLLM's
+# first-party callback mechanism. Both auto-degrade to DummyTracer when their
+# env vars are missing — see notes/observability-langfuse-opik.md.
+langfuse = "^4.0.0"
+opik = "^1.5.0"
 sentry-sdk = {extras = ["fastapi"], version = "^2.20.0"}
 confluent-kafka = "^2.6.1"
 kubernetes = "^32.0.1"
