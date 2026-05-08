@@ -360,6 +360,31 @@ def test_infrastructure_coordination(shared_test_infrastructure):
     yield
 
 
+@pytest.fixture(autouse=True)
+def _holmes_session_per_test(request):
+    """Wrap every LLM eval test in ``holmes_session(test_id)`` so every
+    ``litellm.completion()`` from that test inherits a ``session_id`` /
+    ``langfuse_session_id`` / ``thread_id`` metadata key.
+
+    Effect: in Langfuse the test's full agent loop appears as a single
+    Session (https://us.cloud.langfuse.com/.../sessions); in Opik as a
+    single Thread. Without this, each completion is its own top-level
+    trace and you can't see the conversation as a unit.
+
+    No-op when the holmes.core.litellm_callbacks module isn't importable
+    (e.g. when running unit tests outside the LLM env).
+    """
+    try:
+        from holmes.core.litellm_callbacks import holmes_session
+    except ImportError:
+        yield
+        return
+    # nodeid example: tests/llm/test_ask_holmes.py::test_ask_holmes[01_how_many_pods-ollama_chat/hermes3:8b-default]
+    test_id = request.node.nodeid.split("::", 1)[-1]
+    with holmes_session(test_id):
+        yield
+
+
 @contextmanager
 def force_pytest_output(request):
     """Context manager to force output display even when pytest captures stdout"""

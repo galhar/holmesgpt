@@ -22,8 +22,85 @@ same callbacks; the idempotence checks prevent double-emission).
 """
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import logging
 import os
+from typing import Any, Dict, Iterator, Optional
+
+
+# Per-task session-id propagated to LiteLLM metadata so Langfuse / Opik can
+# group all completions from one logical agent run under a single Session
+# (Langfuse) or Thread (Opik). Read by build_session_metadata() below.
+_current_session_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "holmes_session_id", default=None
+)
+_current_session_user: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "holmes_session_user", default=None
+)
+
+
+@contextlib.contextmanager
+def holmes_session(
+    session_id: str, user_id: Optional[str] = None
+) -> Iterator[str]:
+    """Tag every ``litellm.completion()`` call inside this block with
+    ``session_id`` so Langfuse Sessions / Opik Threads group them.
+
+    Usage:
+        with holmes_session("test:01_how_many_pods"):
+            holmes.investigate(...)
+    """
+    s_token = _current_session_id.set(session_id)
+    u_token = _current_session_user.set(user_id) if user_id else None
+    try:
+        yield session_id
+    finally:
+        _current_session_id.reset(s_token)
+        if u_token is not None:
+            _current_session_user.reset(u_token)
+
+
+def build_session_metadata() -> Dict[str, Any]:
+    """If a holmes_session is active, return the metadata kwargs to pass to
+    ``litellm.completion(metadata=...)`` so the Langfuse callback groups the
+    trace correctly. Returns ``{}`` if no session is active so callers can
+    safely splat it into ``**kwargs``.
+
+    Keys produced (only when session_id is set):
+      - ``session_id``: provider-agnostic key.
+      - ``langfuse_session_id``: Langfuse Sessions UI grouping key
+        (https://langfuse.com/docs/tracing-features/sessions).
+      - ``langfuse_user_id``: optional user attribution.
+    """
+    sid = _current_session_id.get()
+    if not sid:
+        return {}
+    md: Dict[str, Any] = {
+        "session_id": sid,
+        "langfuse_session_id": sid,
+    }
+    uid = _current_session_user.get()
+    if uid:
+        md["langfuse_user_id"] = uid
+    return md
+
+
+def build_opik_args() -> Dict[str, Any]:
+    """If a holmes_session is active, return the ``opik_args`` kwarg to pass
+    to ``litellm.completion(opik_args=...)`` so the Opik decorator tags the
+    trace with ``thread_id`` (= Opik's "Thread" grouping key).
+
+    Returns ``{}`` if no session is active. Opik expects this as a separate
+    top-level kwarg, not nested in ``metadata`` — see
+    ``opik/decorator/opik_args/api_classes.py::OpikArgs.from_dict``. The
+    public dict keys are ``"trace"`` and ``"span"`` (not ``"trace_args"``;
+    that's the Pydantic field name, but the dict accepts the public form).
+    """
+    sid = _current_session_id.get()
+    if not sid:
+        return {}
+    return {"opik_args": {"trace": {"thread_id": sid}}}
 
 
 def _install_langfuse_callback() -> bool:

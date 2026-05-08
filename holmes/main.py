@@ -9,6 +9,7 @@ if add_custom_certificate(ADDITIONAL_CERTIFICATE):
 
 # DO NOT ADD ANY IMPORTS OR CODE ABOVE THIS LINE
 # IMPORTING ABOVE MIGHT INITIALIZE AN HTTPS CLIENT THAT DOESN'T TRUST THE CUSTOM CERTIFICATE
+import datetime
 import sys
 from holmes.utils.colors import USER_COLOR
 import json
@@ -404,7 +405,13 @@ def ask(
             prompt_component_overrides=prompt_component_overrides,
         )
 
-        with tracer.start_trace(
+        # Group every litellm.completion() from this investigation under one
+        # Langfuse Session / Opik Thread so the agent loop is browsable as a
+        # single conversation, not a fan of unrelated traces.
+        from holmes.core.litellm_callbacks import holmes_session
+
+        session_id = f"ask-{datetime.datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:8]}"
+        with holmes_session(session_id), tracer.start_trace(
             f'holmes ask "{prompt}"', span_type=SpanType.TASK
         ) as trace_span:
             trace_span.log(input=prompt, metadata={"type": "user_question"})

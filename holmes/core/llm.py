@@ -605,6 +605,23 @@ class DefaultLLM(LLM):
             # Leave api_key as None in completion call when AZURE_AD_TOKEN_AUTH is enabled
             self.api_key = None
 
+        # If a holmes_session() context is active, propagate its session_id
+        # into the litellm kwargs so the Langfuse / Opik callbacks group all
+        # completions from one investigation under a single Session/Thread.
+        # Langfuse keys go into `metadata=`, Opik wants `opik_args=` separately.
+        from holmes.core.litellm_callbacks import (
+            build_opik_args,
+            build_session_metadata,
+        )
+
+        session_md = build_session_metadata()
+        if session_md:
+            existing_md = self.args.get("metadata") or {}
+            self.args["metadata"] = {**existing_md, **session_md}
+        opik_args = build_opik_args()
+        if opik_args:
+            self.args.update(opik_args)
+
         result = litellm_to_use.completion(
             model=litellm_model_name,
             api_key=self.api_key,
