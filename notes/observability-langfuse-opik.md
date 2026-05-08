@@ -123,6 +123,17 @@ DNS first.
 
 ---
 
+## Ollama: use `ollama_chat/` not `openai/`
+
+When the LLM is served by Ollama, prefer `MODEL=ollama_chat/<model>` +
+`OLLAMA_API_BASE=http://...:11434` over `MODEL=openai/<model>` +
+`OPENAI_API_BASE=http://...:11434/v1`. The OpenAI-compatible shim drops
+qwen tool calls (and similar models that emit `<tool_call>...</tool_call>`
+text instead of structured JSON) — the model emits the tokens, the shim
+fails to parse them, and the response comes back with `content=""`,
+`tool_calls=None`, but `completion_tokens > 0`. Full grounded debug in
+[`docs/lessons/ollama-openai-shim-tool-call-parsing.md`](../docs/lessons/ollama-openai-shim-tool-call-parsing.md).
+
 ## Quick-verify after wiring
 
 ```bash
