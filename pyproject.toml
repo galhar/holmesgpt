@@ -194,7 +194,8 @@ markers = [
     "mcp: Tests for MCP (Model Context Protocol) server integration",
     "conversation_worker: conversation worker integration tests (requires running Holmes + Supabase)",
     "manual: Tests requiring manual interaction (browser login, etc.) — skipped in CI",
-    "token-limit: Tests that enforce a maximum token usage budget"
+    "token-limit: Tests that enforce a maximum token usage budget",
+    "simulated: LLM-as-simulator eval tests (no real infra; see tests/llm/simulation/README.md)"
 ]
 
 addopts = [
