@@ -1,7 +1,9 @@
 # ruff: noqa: E402
+import hashlib
 import os
 
 from holmes.utils.cert_utils import add_custom_certificate
+from holmes.core.litellm_callbacks import holmes_session
 
 ADDITIONAL_CERTIFICATE: str = os.environ.get("CERTIFICATE", "")
 if add_custom_certificate(ADDITIONAL_CERTIFICATE):
@@ -392,8 +394,45 @@ def _stream_with_trace_cleanup(storage, stream_generator, req_info, trace_span):
         storage.__exit__(None, None, None)
 
 
+def _chat_session_id(chat_request: "ChatRequest") -> str:
+    """Stable id grouping all turns of one chat under one
+    Langfuse Session / Opik Thread.
+
+    Hash the first line of the first user message — the chat-UI appends a
+    timestamp-bearing system reminder to the full message between turns,
+    so hashing the full content produces a new id every turn. The first
+    line is the original user question and stays stable.
+    """
+    history = getattr(chat_request, "conversation_history", None) or []
+    seed = next(
+        (str(m.get("content", "")) for m in history
+         if isinstance(m, dict) and m.get("role") == "user"),
+        chat_request.ask or "",
+    )
+    seed = seed.split("\n", 1)[0].strip().lower()
+    return "chat-" + hashlib.sha1(seed.encode("utf-8", errors="replace")).hexdigest()[:12]
+
+
+async def _wrap_stream_with_session(session_id: str, inner):
+    # Starlette's body_iterator runs after the FastAPI handler returns and
+    # the outer `with holmes_session()` has already exited — re-enter it
+    # here so litellm callbacks see the session for every chunk's LLM call.
+    with holmes_session(session_id):
+        async for chunk in inner:
+            yield chunk
+
+
 @app.post("/api/chat")
 def chat(chat_request: ChatRequest, http_request: Request):
+    sid = _chat_session_id(chat_request)
+    with holmes_session(sid):
+        result = _chat_impl(chat_request, http_request)
+    if isinstance(result, StreamingResponse):
+        result.body_iterator = _wrap_stream_with_session(sid, result.body_iterator)
+    return result
+
+
+def _chat_impl(chat_request: ChatRequest, http_request: Request):
     try:
         # Log incoming request details
         has_images = bool(chat_request.images)
