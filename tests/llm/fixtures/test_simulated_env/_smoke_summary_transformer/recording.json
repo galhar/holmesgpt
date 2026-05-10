@@ -1,0 +1,21 @@
+{
+  "schema_version": "holmes.sim:v1",
+  "system_prompt": "You are HolmesGPT, an SRE assistant. Use kubectl_get_pods to investigate. Be brief.",
+  "user_prompt": "List pods in the bigns namespace and report any verification codes you find.",
+  "tool_calls": [
+    {
+      "id": "r1",
+      "name": "kubectl_get_pods",
+      "arguments": {"namespace": "bigns"},
+      "response": {
+        "schema_version": "robusta:v1.0.0",
+        "status": "success",
+        "data": "NAME                          READY   STATUS    RESTARTS   AGE\napp-pod-001                   1/1     Running   0          1d\napp-pod-002                   1/1     Running   0          1d\napp-pod-003                   1/1     Running   0          1d\napp-pod-004                   1/1     Running   0          1d\napp-pod-005                   1/1     Running   0          1d\napp-pod-006                   1/1     Running   0          1d\napp-pod-007                   1/1     Running   0          1d\napp-pod-008                   1/1     Running   0          1d\napp-pod-009                   1/1     Running   0          1d\napp-pod-010                   1/1     Running   0          1d\napp-pod-011                   1/1     Running   0          1d\napp-pod-012                   1/1     Running   0          1d\napp-pod-013                   1/1     Running   0          1d\napp-pod-014                   1/1     Running   0          1d\napp-pod-015                   1/1     Running   0          1d\napp-pod-016                   1/1     Running   0          1d\napp-pod-017                   1/1     Running   0          1d\napp-pod-018                   1/1     Running   0          1d\napp-pod-019                   1/1     Running   0          1d\napp-pod-020-QSF-7Z2A-9W       1/1     Running   0          1d\napp-pod-021                   1/1     Running   0          1d\napp-pod-022                   1/1     Running   0          1d\napp-pod-023                   1/1     Running   0          1d\napp-pod-024                   1/1     Running   0          1d\napp-pod-025                   1/1     Running   0          1d\napp-pod-026                   1/1     Running   0          1d\napp-pod-027                   1/1     Running   0          1d\napp-pod-028                   1/1     Running   0          1d\napp-pod-029                   1/1     Running   0          1d\napp-pod-030                   1/1     Running   0          1d\napp-pod-031                   1/1     Running   0          1d\napp-pod-032                   1/1     Running   0          1d\napp-pod-033                   1/1     Running   0          1d\napp-pod-034                   1/1     Running   0          1d"
+      }
+    }
+  ],
+  "ground_truth_diagnosis": "There is one verification code in the namespace, QSF-7Z2A-9W, embedded in the name of app-pod-020-QSF-7Z2A-9W. All pods are healthy and Running.",
+  "metadata": {
+    "purpose": "verify llm_summarize transformer still fires on simulated output (drift-detection #2)"
+  }
+}
