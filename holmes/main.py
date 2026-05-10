@@ -405,9 +405,8 @@ def ask(
             prompt_component_overrides=prompt_component_overrides,
         )
 
-        # Group every litellm.completion() from this investigation under one
-        # Langfuse Session / Opik Thread so the agent loop is browsable as a
-        # single conversation, not a fan of unrelated traces.
+        # Group every litellm.completion() in this investigation under one
+        # Langfuse Session / Opik Thread.
         from holmes.core.litellm_callbacks import holmes_session
 
         session_id = f"ask-{datetime.datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:8]}"

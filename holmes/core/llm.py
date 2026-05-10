@@ -13,12 +13,10 @@ import boto3
 import litellm
 import sentry_sdk
 
-# Side-effect import: registers Langfuse + Opik LiteLLM callbacks at module
+# Side-effect import: registers Langfuse / Opik LiteLLM callbacks at module
 # load time when the relevant env vars are set, so every litellm.completion()
-# is traced regardless of whether the caller goes through
-# `holmes ask --trace ...` or constructs a Tracer instance. See
-# notes/observability-langfuse-opik.md.
-import holmes.core.litellm_callbacks  # noqa: F401, E402
+# is traced regardless of caller. See notes/observability-langfuse-opik.md.
+from holmes.core.litellm_callbacks import build_opik_args, build_session_metadata  # noqa: E402
 
 from botocore.exceptions import BotoCoreError
 from litellm.litellm_core_utils.streaming_handler import CustomStreamWrapper
@@ -605,21 +603,11 @@ class DefaultLLM(LLM):
             # Leave api_key as None in completion call when AZURE_AD_TOKEN_AUTH is enabled
             self.api_key = None
 
-        # If a holmes_session() context is active, propagate its session_id
-        # into the litellm kwargs so the Langfuse / Opik callbacks group all
-        # completions from one investigation under a single Session/Thread.
-        # Langfuse keys go into `metadata=`, Opik wants `opik_args=` separately.
-        from holmes.core.litellm_callbacks import (
-            build_opik_args,
-            build_session_metadata,
-        )
-
-        session_md = build_session_metadata()
-        if session_md:
-            existing_md = self.args.get("metadata") or {}
-            self.args["metadata"] = {**existing_md, **session_md}
-        opik_args = build_opik_args()
-        if opik_args:
+        # If a holmes_session() is active, group this completion under it
+        # in Langfuse Sessions / Opik Threads. Both no-op when no session.
+        if session_md := build_session_metadata():
+            self.args["metadata"] = {**(self.args.get("metadata") or {}), **session_md}
+        if opik_args := build_opik_args():
             self.args.update(opik_args)
 
         result = litellm_to_use.completion(
