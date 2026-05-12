@@ -9,6 +9,7 @@ if add_custom_certificate(ADDITIONAL_CERTIFICATE):
 
 # DO NOT ADD ANY IMPORTS OR CODE ABOVE THIS LINE
 # IMPORTING ABOVE MIGHT INITIALIZE AN HTTPS CLIENT THAT DOESN'T TRUST THE CUSTOM CERTIFICATE
+import datetime
 import sys
 from holmes.utils.colors import USER_COLOR
 import json
@@ -232,7 +233,15 @@ def ask(
     trace: Optional[str] = typer.Option(
         None,
         "--trace",
-        help="Enable tracing to the specified provider ('braintrust' or 'otel'). OTel auto-enables if OTEL_EXPORTER_OTLP_ENDPOINT is set.",
+        help=(
+            "Enable tracing to the specified provider(s). Single value: "
+            "'braintrust', 'otel', 'langfuse', or 'opik'. Comma-separated "
+            "for multiple (e.g. 'langfuse,opik'). OTel auto-enables if "
+            "OTEL_EXPORTER_OTLP_ENDPOINT is set. Each provider also "
+            "requires its respective env vars (LANGFUSE_PUBLIC_KEY/SECRET_KEY, "
+            "OPIK_API_KEY+OPIK_WORKSPACE, BRAINTRUST_API_KEY) — missing "
+            "credentials degrade silently to no-op for that provider."
+        ),
     ),
     system_prompt_additions: Optional[str] = typer.Option(
         None,
@@ -396,7 +405,12 @@ def ask(
             prompt_component_overrides=prompt_component_overrides,
         )
 
-        with tracer.start_trace(
+        # Group every litellm.completion() in this investigation under one
+        # Langfuse Session / Opik Thread.
+        from holmes.core.litellm_callbacks import holmes_session
+
+        session_id = f"ask-{datetime.datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:8]}"
+        with holmes_session(session_id), tracer.start_trace(
             f'holmes ask "{prompt}"', span_type=SpanType.TASK
         ) as trace_span:
             trace_span.log(input=prompt, metadata={"type": "user_question"})

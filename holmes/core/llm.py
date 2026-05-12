@@ -12,6 +12,12 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Type, Union
 import boto3
 import litellm
 import sentry_sdk
+
+# Side-effect import: registers Langfuse / Opik LiteLLM callbacks at module
+# load time when the relevant env vars are set, so every litellm.completion()
+# is traced regardless of caller. See notes/observability-langfuse-opik.md.
+from holmes.core.litellm_callbacks import build_opik_args, build_session_metadata  # noqa: E402
+
 from botocore.exceptions import BotoCoreError
 from litellm.litellm_core_utils.streaming_handler import CustomStreamWrapper
 from litellm.litellm_core_utils.token_counter import get_image_dimensions
@@ -596,6 +602,13 @@ class DefaultLLM(LLM):
             # Also, ensure we do not leak stale API keys when using Entra ID
             # Leave api_key as None in completion call when AZURE_AD_TOKEN_AUTH is enabled
             self.api_key = None
+
+        # If a holmes_session() is active, group this completion under it
+        # in Langfuse Sessions / Opik Threads. Both no-op when no session.
+        if session_md := build_session_metadata():
+            self.args["metadata"] = {**(self.args.get("metadata") or {}), **session_md}
+        if opik_args := build_opik_args():
+            self.args.update(opik_args)
 
         result = litellm_to_use.completion(
             model=litellm_model_name,

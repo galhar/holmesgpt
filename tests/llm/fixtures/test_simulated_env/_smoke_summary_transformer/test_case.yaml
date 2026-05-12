@@ -1,0 +1,16 @@
+recording: recording.json
+description: |
+  Smoke test that the llm_summarize transformer still fires on simulated
+  tool output. The recorded response is intentionally large (>2000 chars) and
+  the per-tool-set toolsets.yaml configures llm_summarize. After replay,
+  the agent should see a summary, not the full recording.
+tags:
+  - simulated
+expected_output:
+  - "verification code QSF-7Z2A-9W"
+include_tool_calls: true
+skip: true
+skip_reason: |
+  Run manually to verify summary-transformer preservation. Requires
+  a configured fast model (FAST_MODEL env var or default_fast_model).
+  See tests/llm/simulation/CAVEATS.md for the full procedure.

@@ -1,0 +1,64 @@
+{
+  "schema_version": "holmes.sim:v1",
+  "system_prompt": "You are HolmesGPT, an SRE assistant. You help diagnose Kubernetes problems by calling tools and reasoning over their output. Be concise. Form a hypothesis, verify it with tools, and only state a root cause once supported by evidence.",
+  "user_prompt": "Checkout requests are failing in production. Why?",
+  "tool_calls": [
+    {
+      "id": "r1",
+      "name": "kubectl_get_pods",
+      "arguments": {"namespace": "checkout"},
+      "invocation": "kubectl get pods -n checkout",
+      "response": {
+        "schema_version": "robusta:v1.0.0",
+        "status": "success",
+        "data": "NAME                              READY   STATUS             RESTARTS   AGE\ncheckout-api-7f6d9b8c54-2xqrl     0/1     CrashLoopBackOff   8          21m\ncheckout-api-7f6d9b8c54-h4lkj     0/1     CrashLoopBackOff   8          21m\ncheckout-worker-5d8f7b6c4-v9pzm   1/1     Running            0          3h"
+      }
+    },
+    {
+      "id": "r2",
+      "name": "kubectl_describe_pod",
+      "arguments": {"namespace": "checkout", "pod": "checkout-api-7f6d9b8c54-2xqrl"},
+      "response": {
+        "schema_version": "robusta:v1.0.0",
+        "status": "success",
+        "data": "Name:         checkout-api-7f6d9b8c54-2xqrl\nNamespace:    checkout\nStatus:       Running\nContainers:\n  api:\n    Image:          example.io/checkout-api:1.42.0\n    State:          Waiting\n      Reason:       CrashLoopBackOff\n    Last State:     Terminated\n      Reason:       Error\n      Exit Code:    1\n      Started:      Mon, 06 May 2026 10:14:21 +0000\n      Finished:     Mon, 06 May 2026 10:14:34 +0000\n    Restart Count:  8\n    Environment:\n      REDIS_HOST:  redis-master.redis.svc.cluster.local\n      REDIS_PORT:  6379"
+      }
+    },
+    {
+      "id": "r3",
+      "name": "kubectl_logs",
+      "arguments": {"namespace": "checkout", "pod": "checkout-api-7f6d9b8c54-2xqrl", "tail": 50},
+      "response": {
+        "schema_version": "robusta:v1.0.0",
+        "status": "success",
+        "data": "[2026-05-06T10:14:22Z] starting checkout-api 1.42.0\n[2026-05-06T10:14:22Z] connecting to redis at redis-master.redis.svc.cluster.local:6379\n[2026-05-06T10:14:32Z] redis dial tcp 10.96.18.4:6379: i/o timeout\n[2026-05-06T10:14:32Z] retry 1/3 ...\n[2026-05-06T10:14:34Z] fatal: cannot establish redis connection after 3 retries\nexit status 1"
+      }
+    },
+    {
+      "id": "r4",
+      "name": "kubectl_get_pods",
+      "arguments": {"namespace": "redis"},
+      "response": {
+        "schema_version": "robusta:v1.0.0",
+        "status": "success",
+        "data": "NAME              READY   STATUS      RESTARTS      AGE\nredis-master-0    0/1     OOMKilled   12 (2m ago)   17h\nredis-replica-0   1/1     Running     0             17h\nredis-replica-1   1/1     Running     0             17h"
+      }
+    },
+    {
+      "id": "r5",
+      "name": "kubectl_describe_pod",
+      "arguments": {"namespace": "redis", "pod": "redis-master-0"},
+      "response": {
+        "schema_version": "robusta:v1.0.0",
+        "status": "success",
+        "data": "Name:         redis-master-0\nNamespace:    redis\nContainers:\n  redis:\n    Image:          redis:7.2.4\n    Limits:\n      memory:  256Mi\n    Requests:\n      memory:  256Mi\n    State:          Waiting\n      Reason:       CrashLoopBackOff\n    Last State:     Terminated\n      Reason:       OOMKilled\n      Exit Code:    137\n    Restart Count:  12"
+      }
+    }
+  ],
+  "ground_truth_diagnosis": "checkout-api pods are in CrashLoopBackOff because they cannot connect to redis. The root cause is that redis-master-0 (in the redis namespace) was OOMKilled — its 256Mi memory limit is too tight for the working set after a recent traffic spike. The redis replicas are healthy, but checkout-api is hard-coded to talk to redis-master, so it fails to start. Fix: raise the redis-master memory limit (or move checkout-api to read from replicas).",
+  "metadata": {
+    "scenario": "synthetic; hand-authored for harness validation",
+    "captured_at": "2026-05-10",
+    "model_at_capture": "n/a"
+  }
+}

@@ -360,6 +360,20 @@ def test_infrastructure_coordination(shared_test_infrastructure):
     yield
 
 
+@pytest.fixture(autouse=True)
+def _holmes_session_per_test(request):
+    """Group all of one test's litellm.completion() calls under a single
+    Langfuse Session / Opik Thread keyed by the test's nodeid."""
+    try:
+        from holmes.core.litellm_callbacks import holmes_session
+    except ImportError:
+        yield
+        return
+    test_id = request.node.nodeid.split("::", 1)[-1]
+    with holmes_session(test_id):
+        yield
+
+
 @contextmanager
 def force_pytest_output(request):
     """Context manager to force output display even when pytest captures stdout"""

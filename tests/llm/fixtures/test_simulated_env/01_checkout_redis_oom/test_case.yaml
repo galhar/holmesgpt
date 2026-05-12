@@ -1,0 +1,12 @@
+recording: recording.json
+description: |
+  Checkout API CrashLoopBackOff caused by an OOMKilled redis-master pod in
+  another namespace. Tests the simulator's ability to lead the agent through
+  a multi-namespace investigation.
+tags:
+  - simulated
+  - kubernetes
+expected_output:
+  - "redis-master is OOMKilled"
+  - "checkout-api is CrashLoopBackOff because it cannot reach redis"
+include_tool_calls: false

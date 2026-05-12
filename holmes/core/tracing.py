@@ -299,6 +299,161 @@ class BraintrustTracer:
         return WrappedLiteLLM(llm_module)
 
 
+class LangfuseTracer:
+    """Forwards every ``litellm.completion()`` call to Langfuse via the
+    SDK's first-party LiteLLM callback. No wrapping of the litellm module
+    is needed — registering ``"langfuse"`` in ``litellm.success_callback``
+    is enough for LiteLLM to emit traces with generations + tool calls.
+
+    See ``notes/observability-langfuse-opik.md`` for the underlying recipe.
+    """
+
+    def __init__(self, project: str):
+        self.project = project
+
+    def start_experiment(
+        self,
+        experiment_name: Optional[str] = None,
+        additional_metadata: Optional[dict] = None,
+    ):
+        # Langfuse organises by trace, not experiment-by-name; nothing to do.
+        return None
+
+    def start_trace(
+        self, name: str, span_type: Optional[SpanType] = None
+    ) -> Union["DummySpan", Any]:
+        # The LiteLLM callback creates one trace per completion automatically.
+        return DummySpan()
+
+    def get_trace_url(self) -> Optional[str]:
+        host = os.environ.get(
+            "LANGFUSE_HOST", "https://us.cloud.langfuse.com"
+        ).rstrip("/")
+        return host
+
+    def wrap_llm(self, llm_module):
+        import litellm
+
+        cur_success = list(litellm.success_callback or [])
+        if "langfuse" not in cur_success:
+            cur_success.append("langfuse")
+            litellm.success_callback = cur_success
+
+        cur_failure = list(litellm.failure_callback or [])
+        if "langfuse" not in cur_failure:
+            cur_failure.append("langfuse")
+            litellm.failure_callback = cur_failure
+
+        return llm_module
+
+
+class OpikTracer:
+    """Same shape as ``LangfuseTracer`` but uses Opik's LiteLLM integration.
+
+    Opik requires ``OPIK_WORKSPACE`` to be set non-interactively, otherwise
+    ``opik.configure()`` hangs on stdin prompting for it. The factory
+    dispatch guards against that and degrades to ``DummyTracer`` if missing.
+    """
+
+    def __init__(self, project: str):
+        self.project = project
+
+    def start_experiment(
+        self,
+        experiment_name: Optional[str] = None,
+        additional_metadata: Optional[dict] = None,
+    ):
+        return None
+
+    def start_trace(
+        self, name: str, span_type: Optional[SpanType] = None
+    ) -> Union["DummySpan", Any]:
+        return DummySpan()
+
+    def get_trace_url(self) -> Optional[str]:
+        ws = os.environ.get("OPIK_WORKSPACE", "")
+        proj = os.environ.get("OPIK_PROJECT_NAME", self.project)
+        if not ws:
+            return None
+        return f"https://www.comet.com/opik/{ws}/projects/{proj}/traces"
+
+    def wrap_llm(self, llm_module):
+        # Opik's current LiteLLM integration is decorator-based (the older
+        # OpikLogger callback class was removed in opik ~1.10). Wrap
+        # litellm.completion so every call is recorded as an Opik trace.
+        # Idempotent — guarded by _opik_tracked attribute.
+        from opik.integrations.litellm import track_completion
+
+        if getattr(llm_module.completion, "_opik_tracked", False):
+            return llm_module
+
+        wrapped = track_completion(project_name=self.project)(llm_module.completion)
+        try:
+            wrapped._opik_tracked = True  # type: ignore[attr-defined]
+        except AttributeError:
+            pass
+        llm_module.completion = wrapped
+        return llm_module
+
+
+class CompositeTracer:
+    """Fan out every tracer method to a list of underlying tracers. Used
+    when ``--trace`` is given a comma-separated value
+    (e.g. ``--trace langfuse,opik``).
+    """
+
+    def __init__(self, tracers):
+        self._tracers = list(tracers)
+
+    def start_experiment(
+        self,
+        experiment_name: Optional[str] = None,
+        additional_metadata: Optional[dict] = None,
+    ):
+        for t in self._tracers:
+            try:
+                t.start_experiment(
+                    experiment_name=experiment_name,
+                    additional_metadata=additional_metadata,
+                )
+            except Exception as e:
+                logging.warning(
+                    f"{type(t).__name__}.start_experiment failed: {e}"
+                )
+        return None
+
+    def start_trace(self, name: str, span_type: Optional[SpanType] = None):
+        # Return the first non-Dummy span; the LiteLLM callbacks attached
+        # by the other tracers still record their own traces in parallel.
+        for t in self._tracers:
+            try:
+                s = t.start_trace(name, span_type=span_type)
+                if not isinstance(s, DummySpan):
+                    return s
+            except Exception as e:
+                logging.warning(f"{type(t).__name__}.start_trace failed: {e}")
+        return DummySpan()
+
+    def get_trace_url(self) -> Optional[str]:
+        urls = []
+        for t in self._tracers:
+            try:
+                u = t.get_trace_url()
+                if u:
+                    urls.append(u)
+            except Exception:
+                pass
+        return " | ".join(urls) if urls else None
+
+    def wrap_llm(self, llm_module):
+        for t in self._tracers:
+            try:
+                llm_module = t.wrap_llm(llm_module)
+            except Exception as e:
+                logging.warning(f"{type(t).__name__}.wrap_llm failed: {e}")
+        return llm_module
+
+
 class TracingFactory:
     """Factory for creating tracer instances."""
 
@@ -346,6 +501,63 @@ class TracingFactory:
                         "OTEL_EXPORTER_OTLP_ENDPOINT set but otel packages not installed, using DummyTracer"
                     )
             return DummyTracer()
+
+        # Comma-separated trace types → CompositeTracer fans them out.
+        if "," in trace_type:
+            sub_tracers = []
+            for t in trace_type.split(","):
+                t = t.strip()
+                if not t:
+                    continue
+                inner = TracingFactory.create_tracer(t, project=project)
+                # Skip DummyTracer instances so a missing API key for one
+                # provider doesn't pollute the composite with no-ops.
+                if not isinstance(inner, DummyTracer):
+                    sub_tracers.append(inner)
+            if not sub_tracers:
+                return DummyTracer()
+            if len(sub_tracers) == 1:
+                return sub_tracers[0]
+            return CompositeTracer(sub_tracers)
+
+        if trace_type.lower() == "langfuse":
+            try:
+                import langfuse  # noqa: F401
+            except ImportError:
+                logging.warning(
+                    "Langfuse tracing requested but langfuse package not installed"
+                )
+                return DummyTracer()
+            if not (
+                os.environ.get("LANGFUSE_PUBLIC_KEY")
+                and os.environ.get("LANGFUSE_SECRET_KEY")
+            ):
+                logging.warning(
+                    "Langfuse tracing requested but LANGFUSE_PUBLIC_KEY/LANGFUSE_SECRET_KEY not set"
+                )
+                return DummyTracer()
+            return LangfuseTracer(project=project)
+
+        if trace_type.lower() == "opik":
+            try:
+                import opik  # noqa: F401
+            except ImportError:
+                logging.warning(
+                    "Opik tracing requested but opik package not installed"
+                )
+                return DummyTracer()
+            if not os.environ.get("OPIK_API_KEY"):
+                logging.warning(
+                    "Opik tracing requested but OPIK_API_KEY not set"
+                )
+                return DummyTracer()
+            if not os.environ.get("OPIK_WORKSPACE"):
+                logging.warning(
+                    "Opik tracing requested but OPIK_WORKSPACE not set "
+                    "(opik.configure() would hang on stdin) — using DummyTracer"
+                )
+                return DummyTracer()
+            return OpikTracer(project=project)
 
         if trace_type.lower() == "braintrust":
             if not BRAINTRUST_AVAILABLE:

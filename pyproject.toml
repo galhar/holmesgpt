@@ -35,6 +35,14 @@ opensearch-py = "^2.8.0"
 backoff = "^2.2.1"
 # Pin to stable release (check https://github.com/BerriAI/litellm/releases for updates)
 litellm = "1.81.0"
+# LLMOps tracing providers wired through holmes/core/tracing.py via LiteLLM's
+# first-party callback mechanism. Both auto-degrade to DummyTracer when their
+# env vars are missing — see notes/observability-langfuse-opik.md.
+# langfuse pinned to v2 because litellm 1.81.0's built-in callback expects the
+# v2/v3 SDK shape (uses `langfuse.version.__version__`); v4 dropped that and
+# breaks the callback. Bump in lockstep with a future litellm bump.
+langfuse = "^2.60.0"
+opik = "^1.5.0"
 sentry-sdk = {extras = ["fastapi"], version = "^2.20.0"}
 confluent-kafka = "^2.6.1"
 kubernetes = "^32.0.1"
@@ -186,7 +194,8 @@ markers = [
     "mcp: Tests for MCP (Model Context Protocol) server integration",
     "conversation_worker: conversation worker integration tests (requires running Holmes + Supabase)",
     "manual: Tests requiring manual interaction (browser login, etc.) — skipped in CI",
-    "token-limit: Tests that enforce a maximum token usage budget"
+    "token-limit: Tests that enforce a maximum token usage budget",
+    "simulated: LLM-as-simulator eval tests (no real infra; see tests/llm/simulation/README.md)"
 ]
 
 addopts = [
